@@ -1,0 +1,595 @@
+openapi: 3.0.3
+info:
+  title: Finance API (Zorvyn)
+  description: |
+    Node.js + Express + SQLite + Prisma + JWT. Role-based access for dashboard and records.
+
+    **Auth:** obtain a JWT via `POST /api/auth/login`, then send `Authorization: Bearer <token>` on protected routes.
+
+    See README for role matrix (VIEWER / ANALYST / ADMIN) and assumptions.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Dashboard
+  - name: Records
+  - name: Users
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        details:
+          description: Validation field errors (Zod flatten shape)
+          type: object
+        stack:
+          type: string
+          description: Present only when NODE_ENV is not production and status is 500
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [VIEWER, ANALYST, ADMIN]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Record:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: float
+        type:
+          type: string
+          enum: [INCOME, EXPENSE]
+        category:
+          type: string
+        date:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          nullable: true
+        isDeleted:
+          type: boolean
+        userId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            email:
+              type: string
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and receive JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Token and user profile (password omitted)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                      user:
+                        $ref: '#/components/schemas/User'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+        '401':
+          description: Missing/invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Aggregates and recent activity (system-wide, non-deleted records)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: trendGranularity
+          in: query
+          schema:
+            type: string
+            enum: [week, month]
+            default: month
+        - name: trendBuckets
+          in: query
+          schema:
+            type: integer
+            minimum: 2
+            maximum: 24
+            default: 6
+        - name: recentLimit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Dashboard payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    description: Totals, categoryTotals, trends, recentActivity
+        '400':
+          description: Invalid query
+        '401':
+          description: Not authenticated
+        '403':
+          description: Insufficient role
+
+  /api/records:
+    get:
+      tags: [Records]
+      summary: List records (paginated, filterable)
+      description: ANALYST and ADMIN only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [INCOME, EXPENSE]
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: includeDeleted
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Paginated list
+        '400':
+          description: Invalid query
+        '401':
+          description: Not authenticated
+        '403':
+          description: VIEWER or other insufficient role
+    post:
+      tags: [Records]
+      summary: Create record
+      description: ADMIN only. Optional `userId` (assign to another user) — ADMIN only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, type, category, date]
+              properties:
+                amount:
+                  type: number
+                  exclusiveMinimum: 0
+                type:
+                  type: string
+                  enum: [INCOME, EXPENSE]
+                category:
+                  type: string
+                  maxLength: 120
+                date:
+                  type: string
+                  format: date-time
+                notes:
+                  type: string
+                  maxLength: 2000
+                  nullable: true
+                userId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Validation or target user missing
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+
+  /api/records/{id}:
+    get:
+      tags: [Records]
+      summary: Get record by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Record with user summary
+        '401':
+          description: Not authenticated
+        '403':
+          description: Insufficient role
+        '404':
+          description: Not found
+    patch:
+      tags: [Records]
+      summary: Update record
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                amount:
+                  type: number
+                type:
+                  type: string
+                  enum: [INCOME, EXPENSE]
+                category:
+                  type: string
+                date:
+                  type: string
+                  format: date-time
+                notes:
+                  type: string
+                  nullable: true
+                userId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Updated
+        '400':
+          description: Validation
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+        '404':
+          description: Not found
+    delete:
+      tags: [Records]
+      summary: Soft-delete record
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Soft-deleted record
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+        '404':
+          description: Not found
+
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List users (paginated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: OK
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+    post:
+      tags: [Users]
+      summary: Create user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                role:
+                  type: string
+                  enum: [VIEWER, ANALYST, ADMIN]
+                isActive:
+                  type: boolean
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Validation
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+        '409':
+          description: Email already registered
+
+  /api/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+        '404':
+          description: Not found
+    patch:
+      tags: [Users]
+      summary: Update user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+                role:
+                  type: string
+                  enum: [VIEWER, ANALYST, ADMIN]
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Validation
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+        '404':
+          description: Not found
+        '409':
+          description: Email conflict
+    delete:
+      tags: [Users]
+      summary: Delete user
+      description: Fails with 409 if the user still has linked financial records.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: No content
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not ADMIN
+        '404':
+          description: Not found
+        '409':
+          description: User has linked records; delete or reassign them first
