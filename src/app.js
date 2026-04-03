@@ -10,6 +10,16 @@ const app = express();
 
 app.use(express.json({ limit: '1mb' }));
 
+// Root URL (browsers often open "/"); point people to docs and health instead of 404
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    name: 'Finance API',
+    health: '/health',
+    docs: '/api-docs/',
+  });
+});
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
