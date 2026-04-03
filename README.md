@@ -1,13 +1,13 @@
-# Finance backend (Zorvyn assignment)
+# Finance backend
 
-Node.js + Express + **SQLite** + Prisma + JWT. Role-based access for a finance dashboard API (no database server or password — data lives in `prisma/dev.db`).
+Node.js + Express + **SQLite** + Prisma + JWT. Role-based access for a finance dashboard API (no database server or password - data lives in `prisma/dev.db`).
 
 ## Assumptions
 
 - **Roles**
-  - **VIEWER** — `GET /api/dashboard/summary` only (aggregates + recent activity). Cannot access raw financial records or user management.
-  - **ANALYST** — Viewer capabilities plus **read-only** access to `GET /api/records` (list, filter, detail).
-  - **ADMIN** — Full CRUD on records (create/update/soft-delete), full user management, same dashboard/record visibility as analyst for reads.
+  - **VIEWER** - `GET /api/dashboard/summary` only (aggregates + recent activity). Cannot access raw financial records or user management.
+  - **ANALYST** - Viewer capabilities plus **read-only** access to `GET /api/records` (list, filter, detail).
+  - **ADMIN** - Full CRUD on records (create/update/soft-delete), full user management, same dashboard/record visibility as analyst for reads.
 - **Dashboard metrics** are **system-wide** (all non–soft-deleted records), suitable for an org-level dashboard.
 - **Records** belong to a user (`userId`). Admins may set `userId` when creating/updating a record; others own records under their own id.
 - **Soft delete** for records (`isDeleted`); list endpoints hide deleted rows unless `includeDeleted=true` (admin use-case).
@@ -35,7 +35,7 @@ Node.js + Express + **SQLite** + Prisma + JWT. Role-based access for a finance d
    npm run db:seed
    npm run dev
    ```
-   Open `http://localhost:3000/health` — you should see `{ "ok": true }`.
+   Open `http://localhost:3000/health` you should see `{ "ok": true }`.
 
 No PostgreSQL install required. The DB file is gitignored (`prisma/*.db`).
 
